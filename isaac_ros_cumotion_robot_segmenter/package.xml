@@ -40,6 +40,7 @@ SPDX-License-Identifier: Apache-2.0
   <depend>isaac_ros_nitros</depend>
   <depend>isaac_ros_nitros_camera_info_type</depend>
   <depend>isaac_ros_nitros_image_type</depend>
+  <depend>libopencv-dev</depend>
   <depend>rclcpp</depend>
   <depend>rclcpp_components</depend>
   <depend>sensor_msgs</depend>

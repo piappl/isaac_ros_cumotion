@@ -27,6 +27,9 @@
 
 #include "isaac_ros_common/cuda_stream.hpp"
 
+#include <opencv2/core.hpp>
+#include <opencv2/imgproc.hpp>
+
 namespace nvidia
 {
 namespace isaac_ros
@@ -53,8 +56,26 @@ RobotSegmenter::RobotSegmenter(const rclcpp::NodeOptions & options)
   robot_base_frame_(declare_parameter<std::string>("robot_base_frame", "base_link")),
   robot_description_service_name_(declare_parameter<std::string>(
       "robot_description_service_name",
-      "/cumotion/get_robot_description"))
+      "/cumotion/get_robot_description")),
+  invert_robot_mask_(declare_parameter<bool>("invert_robot_mask", false)),
+  robot_mask_dilation_radius_(declare_parameter<int>("robot_mask_dilation_radius", 0)),
+  robot_mask_closing_radius_(declare_parameter<int>("robot_mask_closing_radius", 10))
 {
+  if (robot_mask_dilation_radius_ < 0) {
+    RCLCPP_WARN(
+      get_logger(), "robot_mask_dilation_radius is negative (%d); treating it as 0",
+      robot_mask_dilation_radius_);
+    robot_mask_dilation_radius_ = 0;
+  }
+
+  if (robot_mask_closing_radius_ < 0) {
+    RCLCPP_WARN(
+      get_logger(),
+      "robot_mask_closing_radius is negative (%d); using the default of 10",
+      robot_mask_closing_radius_);
+    robot_mask_closing_radius_ = 10;
+  }
+
   if (memory_pool_num_blocks_ <= 0) {
     throw std::runtime_error("memory_pool_num_blocks must be greater than 0");
   }
@@ -313,6 +334,58 @@ void RobotSegmenter::ComputeAndPublishRobotMask(
         &output_mask
       );
 
+      // Widen the robot silhouette by eroding (robot pixels are the minimum
+      // value, so a minimum filter = binary dilation of the robot mask).
+      if (robot_mask_dilation_radius_ > 0) {
+        const int kernel_size = 2 * robot_mask_dilation_radius_ + 1;
+        const cv::Mat kernel = cv::getStructuringElement(
+          cv::MORPH_ELLIPSE, cv::Size(kernel_size, kernel_size));
+        if constexpr (std::is_same_v<T, uint16_t>) {
+          const cv::Mat mask_mat(depth_h, depth_w, CV_16UC1, mask_buf);
+          cv::Mat dilated;
+          cv::erode(mask_mat, dilated, kernel);
+          dilated.copyTo(mask_mat);
+        } else {
+          const cv::Mat mask_mat(depth_h, depth_w, CV_32FC1, mask_buf);
+          cv::Mat dilated;
+          cv::erode(mask_mat, dilated, kernel);
+          dilated.copyTo(mask_mat);
+        }
+      }
+
+      // Morphological closing of the robot silhouette (hole filling).  The raw
+      // mask has robot = minimum value, so OpenCV MORPH_OPEN on it performs the
+      // binary CLOSE of the robot: holes up to the kernel size are filled.
+      if (robot_mask_closing_radius_ > 0) {
+        const int closing_kernel_size = 2 * robot_mask_closing_radius_ + 1;
+        const cv::Mat closing_kernel = cv::getStructuringElement(
+          cv::MORPH_ELLIPSE, cv::Size(closing_kernel_size, closing_kernel_size));
+        if constexpr (std::is_same_v<T, uint16_t>) {
+          const cv::Mat mask_mat(depth_h, depth_w, CV_16UC1, mask_buf);
+          cv::Mat closed;
+          cv::morphologyEx(mask_mat, closed, cv::MORPH_OPEN, closing_kernel);
+          closed.copyTo(mask_mat);
+        } else {
+          const cv::Mat mask_mat(depth_h, depth_w, CV_32FC1, mask_buf);
+          cv::Mat closed;
+          cv::morphologyEx(mask_mat, closed, cv::MORPH_OPEN, closing_kernel);
+          closed.copyTo(mask_mat);
+        }
+      }
+
+      // Optional polarity inversion of the CPU mask buffer, before copy to GPU
+      if (invert_robot_mask_) {
+        if constexpr (std::is_same_v<T, uint16_t>) {
+          for (size_t i = 0; i < num_pixels; ++i) {
+            mask_buf[i] = (mask_buf[i] == 0) ? std::numeric_limits<uint16_t>::max() : uint16_t(0);
+          }
+        } else {
+          for (size_t i = 0; i < num_pixels; ++i) {
+            mask_buf[i] = (mask_buf[i] == 0.0f) ? 1.0f : 0.0f;
+          }
+        }
+      }
+
       // Allocate GPU memory and copy output
       T * gpu_aligned_depth = reinterpret_cast<T *>(depth_write_handle.get_ptr());
       T * gpu_aligned_mask = reinterpret_cast<T *>(mask_write_handle.get_ptr());
@@ -338,6 +411,12 @@ void RobotSegmenter::ComputeAndPublishRobotMask(
 
       // Note that for uint16_t 0 = robot, max uint16_t value = background.
       // For float16 0 = robot, 1 = background.
+      // With mask inversion enabled the polarity flips: robot = max uint16_t (or 1.0),
+      // background = 0.
+      // With dilation enabled (robot_mask_dilation_radius > 0) the robot silhouette is
+      // widened by that radius before inversion.
+      // Morphological closing (robot_mask_closing_radius > 0) fills holes in the
+      // silhouette up to the kernel size and runs after dilation, before inversion.
       robot_mask_pub_->publish(std::move(mask_output_image));
       robot_depth_pub_->publish(std::move(depth_output_image));
     };

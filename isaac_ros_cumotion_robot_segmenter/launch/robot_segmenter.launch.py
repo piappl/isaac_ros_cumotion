@@ -120,6 +120,9 @@ def launch_setup(context, *args, **kwargs):
                     'robot_description_service_name':
                         launch_configs['robot_description_service_name'],
                     'robot_base_frame': launch_configs['robot_base_frame'],
+                    'invert_robot_mask': launch_configs['invert_robot_mask'],
+                    'robot_mask_dilation_radius': launch_configs['robot_mask_dilation_radius'],
+                    'robot_mask_closing_radius': launch_configs['robot_mask_closing_radius'],
             }],
             remappings=[
                 ('depth_image', list_input_img_topics[i]),
