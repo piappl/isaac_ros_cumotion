@@ -50,6 +50,7 @@ find_package(cumotion REQUIRED CONFIG)
 find_package(CUDAToolkit REQUIRED)
 find_package(Eigen3 3.3 REQUIRED NO_MODULE)
 find_package(yaml-cpp REQUIRED)
+find_package(OpenCV REQUIRED COMPONENTS core imgproc)
 
 # NVTX
 option(USE_NVTX "Enable NVTX markers for improved profiling (if available)" ON)
@@ -68,6 +69,7 @@ target_link_libraries(robot_segmenter_node
   Eigen3::Eigen
   cumotion::cumotion
   yaml-cpp
+  ${OpenCV_LIBS}
 )
 set_target_properties(robot_segmenter_node PROPERTIES
   BUILD_WITH_INSTALL_RPATH TRUE

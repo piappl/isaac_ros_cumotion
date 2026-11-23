@@ -20,3 +20,6 @@
     robot_description_service_name: /cumotion/get_robot_description
     robot_base_frame: base_link
     enable_performance_logging: False
+    invert_robot_mask: False
+    robot_mask_dilation_radius: 0
+    robot_mask_closing_radius: 5

@@ -141,6 +141,17 @@ private:
   // Service name for getting robot description
   std::string robot_description_service_name_;
 
+  // When true, published robot mask polarity is inverted (robot = max, background = 0)
+  bool invert_robot_mask_{false};
+
+  // Radius in pixels for dilating (widening) the robot silhouette in the published
+  // robot_mask before any polarity inversion; 0 disables dilation.
+  int robot_mask_dilation_radius_{0};
+
+  // Radius in pixels of the elliptical kernel for morphological closing (hole
+  // filling) of the robot silhouette; always on by default (10); 0 disables.
+  int robot_mask_closing_radius_{10};
+
   // CUDA resources
   ::nvidia::isaac_ros::common::CudaStreamPtr cuda_stream_;
 
